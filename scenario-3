@@ -1,0 +1,85 @@
+-- Demonstrate the trigger by inserting a new sales record without a profit value
+-- Order_ID, Product_ID, Sales, Quantity, Discount
+INSERT INTO "Order_Facts" (order_id, product_id, sales, quantity, discount) VALUES
+('CA-2016-138688', 'TEC-PH-10004006', 206.10, 5, 0);
+
+-- Verify that the profit was correctly calculated and populated
+SELECT * FROM "Order_Facts" WHERE order_id = 'CA-2016-138688';
+
+-- Drop tables if they exist to start with a clean slate
+DROP TABLE IF EXISTS "Returns";
+DROP TABLE IF EXISTS "Orders";
+
+-- Create the Orders table with OrderStatus column
+CREATE TABLE "Orders" (
+    order_id VARCHAR(50) PRIMARY KEY,
+    quantity_ordered INTEGER,
+    order_status VARCHAR(50)
+);
+
+-- Create the Returns table with a foreign key to Orders
+CREATE TABLE "Returns" (
+    return_id SERIAL PRIMARY KEY,
+    order_id VARCHAR(50) REFERENCES "Orders"(order_id),
+    quantity_returned INTEGER
+);
+
+-- Insert a sample order with a 'Shipped' status
+INSERT INTO "Orders" (order_id, quantity_ordered, order_status) VALUES
+('CA-2016-152156', 5, 'Shipped');
+
+
+
+SELECT * FROM "Order_Facts" WHERE order_id = 'CA-2016-138688';
+
+
+
+-- Trigger function to check for full return and update order status
+CREATE OR REPLACE FUNCTION update_order_status_on_return()
+RETURNS TRIGGER AS $$
+DECLARE
+    total_returned INTEGER;
+    total_ordered INTEGER;
+BEGIN
+    -- Get the total quantity of items returned for the order
+    SELECT SUM(quantity_returned) INTO total_returned
+    FROM "Returns"
+    WHERE order_id = NEW.order_id;
+    
+    -- Get the total quantity of items originally ordered
+    SELECT quantity_ordered INTO total_ordered
+    FROM "Orders"
+    WHERE order_id = NEW.order_id;
+
+    -- If all items have been returned, update the order status
+    IF total_returned >= total_ordered THEN
+        UPDATE "Orders"
+        SET order_status = 'Returned'
+        WHERE order_id = NEW.order_id;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Trigger to execute the function AFTER an INSERT on Returns
+CREATE TRIGGER check_full_return_trigger
+AFTER INSERT ON "Returns"
+FOR EACH ROW
+EXECUTE FUNCTION update_order_status_on_return();
+
+
+
+-- Show the initial status of the order
+SELECT order_id, quantity_ordered, order_status FROM "Orders" WHERE order_id = 'CA-2016-152156';
+
+
+
+-- Insert a return for all items in the order
+INSERT INTO "Returns" (order_id, quantity_returned) VALUES
+('CA-2016-152156', 5);
+
+-- Check the updated status of the order after the return
+SELECT order_id, quantity_ordered, order_status FROM "Orders" WHERE order_id = 'CA-2016-152156';
+
+
