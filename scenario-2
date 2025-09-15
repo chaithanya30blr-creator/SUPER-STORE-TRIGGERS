@@ -1,0 +1,59 @@
+-- Drop the dependent table first to avoid errors
+DROP TABLE IF EXISTS sales_fact;
+
+-- Now drop the parent table
+DROP TABLE IF EXISTS products_dim;
+
+-- Create the products dimension table with a 'Cost' column
+CREATE TABLE products_dim (
+    product_id VARCHAR(50) PRIMARY KEY,
+    product_name VARCHAR(255),
+    cost NUMERIC(10, 2)
+);
+
+-- Create the orders fact table with a 'Profit' column
+CREATE TABLE "Order_Facts" (
+    order_id VARCHAR(50) PRIMARY KEY,
+    product_id VARCHAR(50) REFERENCES products_dim(product_id),
+    sales NUMERIC(10, 2),
+    quantity INTEGER,
+    discount NUMERIC(4, 2),
+    profit NUMERIC(10, 2)
+);
+
+-- Populate the products_dim table with sample data and a fictious 'Cost' value for each product
+INSERT INTO products_dim (product_id, product_name, cost) VALUES
+('FUR-CH-10000454', 'Hon Deluxe Fabric Upholstered Stacking Chairs', 50.00),
+('OFF-LA-10000240', 'Self-Adhesive Removable Labels', 2.00),
+('TEC-PH-10004006', 'Panasonic KX - TS880B Telephone', 35.00);
+
+CREATE OR REPLACE FUNCTION calculate_profit_trigger_function()
+RETURNS TRIGGER AS $$
+DECLARE
+    product_cost NUMERIC(10, 2);
+BEGIN
+    -- Look up the cost of the product from the products_dim table
+    SELECT cost INTO product_cost
+    FROM products_dim
+    WHERE product_id = NEW.product_id;
+
+    -- Calculate the profit and assign it to the NEW.profit field
+    NEW.profit := NEW.sales - (NEW.sales * NEW.discount) - (NEW.quantity * product_cost);
+    
+    -- Return the new row with the calculated profit
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER calculate_profit_trigger
+BEFORE INSERT ON "Order_Facts"
+FOR EACH ROW
+EXECUTE FUNCTION calculate_profit_trigger_function();
+
+-- Demonstrate the trigger by inserting a new sales record without a profit value
+-- Order_ID, Product_ID, Sales, Quantity, Discount
+INSERT INTO "Order_Facts" (order_id, product_id, sales, quantity, discount) VALUES
+('CA-2016-138688', 'TEC-PH-10004006', 206.10, 5, 0);
+
+-- Verify that the profit was correctly calculated and populated
+SELECT * FROM "Order_Facts" WHERE order_id = 'CA-2016-138688';
